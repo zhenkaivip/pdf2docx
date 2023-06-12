@@ -18,16 +18,15 @@ from ..common.algorithm import (recursive_xy_cut, inner_contours, xy_project_pro
 
 
 class ImagesExtractor:
-    def __init__(self, page:fitz.Page) -> None:
+    def __init__(self, page: fitz.Page) -> None:
         '''Extract images from PDF page.
         
         Args:
             page (fitz.Page): pdf page to extract images.
         '''
         self._page = page
-    
 
-    def clip_page_to_pixmap(self, bbox:fitz.Rect=None, zoom:float=3.0):
+    def clip_page_to_pixmap(self, bbox: fitz.Rect = None, zoom: float = 3.0):
         '''Clip page pixmap (without text) according to ``bbox``.
 
         Args:
@@ -38,31 +37,30 @@ class ImagesExtractor:
 
         Returns:
             fitz.Pixmap: The extracted pixmap.
-        '''        
+        '''
         # hide text 
         self._hide_page_text(self._page)
-        
+
         if bbox is None:
             clip_bbox = self._page.rect
-        
+
         # transform to the final bbox when page is rotated
         elif self._page.rotation:
             clip_bbox = bbox * self._page.rotation_matrix
-            
+
         else:
             clip_bbox = bbox
-        
+
         clip_bbox = clip_bbox & self._page.rect
-        
+
         # improve resolution
         # - https://pymupdf.readthedocs.io/en/latest/faq.html#how-to-increase-image-resolution
         # - https://github.com/pymupdf/PyMuPDF/issues/181
         matrix = fitz.Matrix(zoom, zoom)
 
-        return self._page.get_pixmap(clip=clip_bbox, matrix=matrix) # type: fitz.Pixmap
+        return self._page.get_pixmap(clip=clip_bbox, matrix=matrix)  # type: fitz.Pixmap
 
-
-    def clip_page_to_dict(self, bbox:fitz.Rect=None, clip_image_res_ratio:float=3.0):
+    def clip_page_to_dict(self, bbox: fitz.Rect = None, clip_image_res_ratio: float = 3.0):
         '''Clip page pixmap (without text) according to ``bbox`` and convert to source image.
 
         Args:
@@ -75,8 +73,7 @@ class ImagesExtractor:
         pix = self.clip_page_to_pixmap(bbox=bbox, zoom=clip_image_res_ratio)
         return self._to_raw_dict(pix, bbox)
 
-
-    def extract_images(self, clip_image_res_ratio:float=3.0):
+    def extract_images(self, clip_image_res_ratio: float = 3.0):
         '''Extract normal images with ``Page.get_images()``.
 
         Args:
@@ -102,14 +99,14 @@ class ImagesExtractor:
         for item in self._page.get_images(full=True):
             # image item: (xref, smask, width, height, bpc, colorspace, ...)
             item = list(item)
-            item[-1] = 0            
-            
+            item[-1] = 0
+
             # find all occurrences referenced to this image            
             rects = self._page.get_image_rects(item)
-            unrotated_page_bbox = self._page.cropbox # note the difference to page.rect
+            unrotated_page_bbox = self._page.cropbox  # note the difference to page.rect
             for bbox in rects:
                 # ignore small images
-                if bbox.get_area()<=4: continue
+                if bbox.get_area() <= 4: continue
 
                 # ignore images outside page
                 if not unrotated_page_bbox.intersects(bbox): continue
@@ -129,7 +126,7 @@ class ImagesExtractor:
                 clip_bbox = fitz.Rect()
                 for (bbox, item) in group: clip_bbox |= bbox
                 raw_dict = self.clip_page_to_dict(clip_bbox, clip_image_res_ratio)
-            
+
             else:
                 bbox, item = group[0]
                 # recover image
@@ -142,19 +139,18 @@ class ImagesExtractor:
                 alpha_only = not pix.colorspace
                 if alpha_only:
                     raw_dict = self.clip_page_to_dict(bbox, clip_image_res_ratio)
-                
+
                 # rotate image with opencv if page is rotated
                 else:
                     raw_dict = self._to_raw_dict(pix, bbox)
-                    if rotation: 
+                    if rotation:
                         raw_dict['image'] = self._rotate_image(pix, -rotation)
 
             images.append(raw_dict)
 
-        return images    
-        
-    
-    def detect_svg_contours(self, min_svg_gap_dx:float, min_svg_gap_dy:float, min_w:float, min_h:float):
+        return images
+
+    def detect_svg_contours(self, min_svg_gap_dx: float, min_svg_gap_dy: float, min_w: float, min_h: float):
         '''Find contour of potential vector graphics.
 
         Args:
@@ -175,17 +171,16 @@ class ImagesExtractor:
         # gray and binary
         gray = cv.cvtColor(src, cv.COLOR_BGR2GRAY)
         _, binary = cv.threshold(gray, 253, 255, cv.THRESH_BINARY_INV)
-        
+
         # external bbox: split images with recursive xy cut
-        external_bboxes = recursive_xy_cut(binary, min_dx=min_svg_gap_dx, min_dy=min_svg_gap_dy)        
-        
+        external_bboxes = recursive_xy_cut(binary, min_dx=min_svg_gap_dx, min_dy=min_svg_gap_dy)
+
         # inner contours
         grouped_inner_bboxes = [inner_contours(binary, bbox, min_w, min_h) for bbox in external_bboxes]
 
         # combined external and inner contours
         groups = list(zip(external_bboxes, grouped_inner_bboxes))
-            
-        
+
         # plot detected images for debug
         debug = False
         if debug:
@@ -197,20 +192,19 @@ class ImagesExtractor:
             for bbox, inner_bboxes in groups:
                 # plot external bbox
                 x0, y0, x1, y1 = bbox
-                cv.rectangle(src, (x0, y0), (x1, y1), (255,0,0), 1)
+                cv.rectangle(src, (x0, y0), (x1, y1), (255, 0, 0), 1)
 
                 # plot inner bbox
                 for u0, v0, u1, v1 in inner_bboxes:
-                    cv.rectangle(src, (u0, v0), (u1, v1), (0,0,255), 1)
+                    cv.rectangle(src, (u0, v0), (u1, v1), (0, 0, 255), 1)
 
             cv.imshow("img", src)
             cv.waitKey(0)
 
         return groups
 
-
     @staticmethod
-    def _to_raw_dict(image:fitz.Pixmap, bbox:fitz.Rect):
+    def _to_raw_dict(image: fitz.Pixmap, bbox: fitz.Rect):
         '''Store Pixmap ``image`` to raw dict.
 
         Args:
@@ -220,17 +214,20 @@ class ImagesExtractor:
         Returns:
             dict: Raw dict of the pixmap.
         '''
-        return {
-            'type': BlockType.IMAGE.value,
-            'bbox': tuple(bbox),
-            'width': image.width,
-            'height': image.height,
-            'image': image.tobytes()
-        }
-
+        try:
+            return {
+                'type': BlockType.IMAGE.value,
+                'bbox': tuple(bbox),
+                'width': image.width,
+                'height': image.height,
+                'image': image.tobytes()
+            }
+        except Exception as e:
+            print(e)
+            return {}
 
     @staticmethod
-    def _rotate_image(pixmap:fitz.Pixmap, rotation:int):
+    def _rotate_image(pixmap: fitz.Pixmap, rotation: int):
         '''Rotate image represented by image bytes.
 
         Args:
@@ -244,10 +241,10 @@ class ImagesExtractor:
 
         # convert to opencv image
         img = ImagesExtractor._pixmap_to_cv_image(pixmap)
-        h, w = img.shape[:2] # get image height, width
+        h, w = img.shape[:2]  # get image height, width
 
         # calculate the center of the image
-        x0, y0 = w//2, h//2
+        x0, y0 = w // 2, h // 2
 
         # default scale value for now -> might be extracted from PDF page property    
         scale = 1.0
@@ -258,15 +255,15 @@ class ImagesExtractor:
         # calculate the final dimension
         cos = np.abs(matrix[0, 0])
         sin = np.abs(matrix[0, 1])
-    
+
         # compute the new bounding dimensions of the image
         W = int((h * sin) + (w * cos))
         H = int((h * cos) + (w * sin))
-    
+
         # adjust the rotation matrix to take into account translation
         matrix[0, 2] += (W / 2) - x0
         matrix[1, 2] += (H / 2) - y0
-        
+
         # perform the rotation holding at the center        
         rotated_img = cv.warpAffine(img, matrix, (W, H))
 
@@ -274,30 +271,29 @@ class ImagesExtractor:
         _, im_png = cv.imencode('.png', rotated_img)
         return im_png.tobytes()
 
-
     @staticmethod
-    def _hide_page_text(page:fitz.Page):
+    def _hide_page_text(page: fitz.Page):
         '''Hide page text before clipping page.'''
         # NOTE: text might exist in both content stream and form object stream
         # - content stream, i.e. direct page content
         # - form object, i.e. contents referenced by this page
         xref_list = [xref for (xref, name, invoker, bbox) in page.get_xobjects()]
-        xref_list.extend(page.get_contents())        
+        xref_list.extend(page.get_contents())
 
         # render Tr: set the text rendering mode
         # - 3: neither fill nor stroke the text -> invisible
         # read more:
         # - https://github.com/pymupdf/PyMuPDF/issues/257
         # - https://www.adobe.com/content/dam/acom/en/devnet/pdf/pdfs/pdf_reference_archives/PDFReference.pdf
-        doc = page.parent # type: fitz.Document
+        doc = page.parent  # type: fitz.Document
         for xref in xref_list:
             stream = doc.xref_stream(xref).replace(b'BT', b'BT 3 Tr') \
-                                             .replace(b'Tm', b'Tm 3 Tr') \
-                                             .replace(b'Td', b'Td 3 Tr')
+                .replace(b'Tm', b'Tm 3 Tr') \
+                .replace(b'Td', b'Td 3 Tr')
             doc.update_stream(xref, stream)
-   
+
     @staticmethod
-    def _recover_pixmap(doc:fitz.Document, item:list):
+    def _recover_pixmap(doc: fitz.Document, item: list):
         """Restore pixmap with soft mask considered.
         
         References:
@@ -328,9 +324,9 @@ class ImagesExtractor:
                 temp = fitz.Pixmap(pix, 0)  # make temp pixmap w/o the alpha
                 pix = None  # release storage
                 pix = temp
-            
+
             # check dimension
-            if pix.width==mask.width and pix.height==mask.height:
+            if pix.width == mask.width and pix.height == mask.height:
                 pix = fitz.Pixmap(pix, mask)  # now compose final pixmap
             else:
                 logging.warning('Ignore image due to inconsistent size of color and mask pixmaps: %s', item)
@@ -343,9 +339,8 @@ class ImagesExtractor:
 
         return pix
 
-
     @staticmethod
-    def _pixmap_to_cv_image(pixmap:fitz.Pixmap):
+    def _pixmap_to_cv_image(pixmap: fitz.Pixmap):
         '''Convert fitz Pixmap to opencv image.
 
         Args:
